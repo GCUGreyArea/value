@@ -1,0 +1,18 @@
+# Build outputs
+/build/
+
+# Generated binaries
+/unit_tests
+/example
+/parser_examples
+
+# Local/editor metadata
+/.codex
+/.vscode/
+
+# Common temporary files
+*.o
+*.swp
+*.swo
+*~
+.DS_Store

@@ -1,0 +1,31 @@
+{
+  "expected_key_value_pairs": 5,
+  "delimiter": ",",
+  "columns": [
+    {
+      "index": 0,
+      "name": "HEADING1",
+      "type": "FLOAT"
+    },
+    {
+      "index": 1,
+      "name": "HEADING2",
+      "type": "STRING"
+    },
+    {
+      "index": 2,
+      "name": "HEADING3",
+      "type": "INT"
+    },
+    {
+      "index": 3,
+      "name": "HEADING4",
+      "type": "BOOL"
+    },
+    {
+      "index": 4,
+      "name": "HEADING5",
+      "type": "FLOAT"
+    }
+  ]
+}
