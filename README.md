@@ -81,7 +81,7 @@ Run the unit suite with:
 - `ValueVector` stores ordered values with typed retrieval and raw access via
   `at()`
 
-### Parser
+### Flexible LAyout Grammer (FLG) Parser
 
 `FlgParser` supports:
 
