@@ -1,4 +1,4 @@
-# FLG Parser Architecture and Design
+# Flexible LAyout GRammer (FLG) Parser Architecture and Design
 
 ## Overview
 
