@@ -1,4 +1,4 @@
-# FLG Parser Implementation
+# Flexible Layout Grammer (FLG) Parser Implementation
 
 ## Current State
 
