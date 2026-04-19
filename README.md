@@ -41,6 +41,7 @@ The primary build uses Bazel.
 
 ```bash
 bazel build //:example //:parser_examples
+
 ```
 
 Run the unit suite with:
