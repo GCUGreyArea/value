@@ -119,6 +119,8 @@ errors
 
 - `setRequiredHeading(name, severity)`
 - `setOptionalHeading(name)`
+- `setRequiredKeyValuePair(name, severity)`
+- `setOptionalKeyValuePair(name)`
 - `setFieldValidator(field, validatorName)`
 - `registerValidator(validatorName, validator)`
 - `getDiagnostics()`, `getErrors()`, and `getWarnings()`
@@ -201,6 +203,7 @@ public:
 `lib/src/ParserConfig.cpp` maps JSON config into parser configuration:
 
 - `field_requirements` -> `error`, `warning`, or `optional`
+- `key_value_requirements` -> `error`, `warning`, or `optional`
 - `validators` -> field name to registered validator name
 
 ### 5. External Validator Registration

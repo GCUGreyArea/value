@@ -67,6 +67,10 @@ public:
         const std::string& heading,
         DiagnosticSeverity severity = DiagnosticSeverity::ERROR);
     void setOptionalHeading(const std::string& heading);
+    void setRequiredKeyValuePair(
+        const std::string& key,
+        DiagnosticSeverity severity = DiagnosticSeverity::ERROR);
+    void setOptionalKeyValuePair(const std::string& key);
     void setFieldValidator(const std::string& fieldName,
                            const std::string& validatorName);
     void setFieldValidator(const std::string& fieldName,
@@ -124,6 +128,7 @@ private:
     std::map<std::string, ValueType> columnTypeMap;
     std::map<size_t, ValueType> columnIndexTypeMap;
     std::map<std::string, DiagnosticSeverity> requiredHeadings;
+    std::map<std::string, DiagnosticSeverity> requiredKeyValuePairs;
     std::map<std::string, std::string> fieldValidatorMap;
     size_t expectedKVPairs; // Number of expected key-value pairs (0 = unlimited)
     char delimiter;

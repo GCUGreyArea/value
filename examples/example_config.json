@@ -5,6 +5,10 @@
     "HEADING4": "error",
     "STAMP": "optional"
   },
+  "key_value_requirements": {
+    "STAMP": "error",
+    "OWNER": "warning"
+  },
   "validators": {
     "STAMP": "datetime_utc"
   },

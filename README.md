@@ -94,6 +94,7 @@ The repository still includes a `Makefile` for local compatibility.
 - configurable column typing by index or by column name
 - configurable key-value counts via `setExpectedKeyValuePairs()`
 - required headings with warning or error severity
+- required key-value pairs with warning or error severity
 - field-specific string validators
 - structured parse diagnostics with line and column numbers
 
@@ -126,6 +127,7 @@ parser.setColumnType(0, "HEADING1", ValueType::FLOAT);
 parser.setColumnType(1, "HEADING2", ValueType::STRING);
 parser.setColumnType(3, "HEADING4", ValueType::BOOL);
 parser.setRequiredHeading("HEADING4", DiagnosticSeverity::ERROR);
+parser.setRequiredKeyValuePair("STAMP", DiagnosticSeverity::ERROR);
 parser.setFieldValidator("STAMP", "datetime_utc");
 
 std::ifstream input("input.flg");
@@ -181,6 +183,11 @@ Sample config:
     "HEADING4": "error",
     "STAMP": "optional"
   },
+  "key_value_requirements": {
+    "STAMP": "error",
+    "OWNER": "warning",
+    "COMMENT": "optional"
+  },
   "validators": {
     "STAMP": "datetime_utc"
   },
@@ -195,6 +202,7 @@ Sample config:
 
 `field_requirements` accepts `error`, `warning`, or `optional`. `validators`
 maps field names to registered validator names.
+`key_value_requirements` accepts the same values for metadata keys.
 
 Built-in validators:
 

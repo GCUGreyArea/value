@@ -128,6 +128,28 @@ void configureParserFromJson(const nlohmann::json& config, FlgParser& parser) {
         }
     }
 
+    if (config.contains("key_value_requirements")) {
+        const nlohmann::json& keyValueRequirements =
+            config.at("key_value_requirements");
+        if (!keyValueRequirements.is_object()) {
+            throw std::runtime_error(
+                "Config field 'key_value_requirements' must be an object");
+        }
+
+        for (auto it = keyValueRequirements.begin();
+             it != keyValueRequirements.end();
+             ++it) {
+            const std::string requirement = it.value().get<std::string>();
+            if (requirement == "optional") {
+                parser.setOptionalKeyValuePair(it.key());
+                continue;
+            }
+
+            parser.setRequiredKeyValuePair(
+                it.key(), parseHeadingRequirementSeverity(requirement));
+        }
+    }
+
     if (config.contains("validators")) {
         const nlohmann::json& validators = config.at("validators");
         if (!validators.is_object()) {

@@ -76,6 +76,7 @@ private:
     bool validateFieldValue(const std::string& fieldName,
                             const ParsedField& field,
                             size_t line);
+    void validateRequiredKeyValuePairs(size_t line);
     bool rowIsBlank(const ParsedRow& row) const;
     void validateRequiredHeadings(size_t line);
 };
