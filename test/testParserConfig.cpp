@@ -44,6 +44,29 @@ TEST_F(testParserConfig, ValidateConfigSupportsOptionalFields) {
     EXPECT_TRUE(parser.getDiagnostics().empty());
 }
 
+TEST_F(testParserConfig, ValidateConfigSetsKeyValueRequirements) {
+    const nlohmann::json config = {
+        {"expected_key_value_pairs", 1},
+        {"key_value_requirements",
+         {{"MISSING_ERROR", "error"},
+          {"MISSING_WARNING", "warning"},
+          {"IGNORED", "optional"}}}};
+
+    configureParserFromJson(config, parser);
+
+    std::istringstream input(
+        "META,value\n"
+        "VALUE\n"
+        "42\n");
+
+    EXPECT_FALSE(parser.deserialise(input));
+    EXPECT_EQ(parser.getWarnings().size(), 1u);
+    ASSERT_NE(parser.getLastError(), nullptr);
+    EXPECT_NE(
+        parser.getLastError()->message.find("Required key-value pair missing"),
+        std::string::npos);
+}
+
 TEST_F(testParserConfig, ValidateConfigRejectsUnknownValidatorName) {
     const nlohmann::json config = {{"validators", {{"STAMP", "missing"}}}};
 

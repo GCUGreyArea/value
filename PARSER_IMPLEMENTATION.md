@@ -51,6 +51,7 @@ Implements:
 
 - parser configuration methods
 - required-heading configuration
+- required key-value pair configuration
 - field-to-validator binding
 - global validator registry access
 - stream serialisation
@@ -95,13 +96,14 @@ Implements:
    preserving parser configuration.
 2. Run the Flex/Bison parser to assemble rows and hand them to `ParserDriver`.
 3. Let the driver classify rows as metadata, header, or data, then perform type
-   conversion and required-heading checks.
+   conversion and required-heading / required-key checks.
 
 Header detection supports:
 
 - direct header rows with multiple delimited columns
 - fixed metadata counts via `setExpectedKeyValuePairs()`
 - required headings reported as warnings or errors
+- required key-value pairs reported as warnings or errors
 
 The parser delimiter is configurable via `setDelimiter()`.
 
@@ -158,6 +160,7 @@ Coverage includes:
 - stream serialisation and deserialisation
 - parse diagnostic line and column reporting
 - required-heading warnings and errors
+- required key-value pair warnings and errors
 - field validators, including UTC datetime validation
 - external validator registration from a separate compilation unit
 - large-input parsing

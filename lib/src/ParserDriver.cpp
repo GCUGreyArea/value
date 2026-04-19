@@ -307,6 +307,7 @@ void ParserDriver::parseKeyValueRow(const ParsedRow& row, size_t line) {
 
 void ParserDriver::parseHeaderRow(const ParsedRow& row, size_t line) {
     headersParsed = true;
+    validateRequiredKeyValuePairs(line);
 
     for (size_t columnIndex = 0; columnIndex < row.size(); ++columnIndex) {
         ColumnDefinition column;
@@ -413,6 +414,16 @@ bool ParserDriver::validateFieldValue(const std::string& fieldName,
 
 bool ParserDriver::rowIsBlank(const ParsedRow& row) const {
     return row.size() == 1 && trimCopy(row.front().value).empty();
+}
+
+void ParserDriver::validateRequiredKeyValuePairs(size_t line) {
+    for (const auto& requirement : parser.requiredKeyValuePairs) {
+        if (!parser.kvPairs.contains(requirement.first)) {
+            addDiagnostic(requirement.second, line, 1,
+                          "Required key-value pair missing: " +
+                              requirement.first);
+        }
+    }
 }
 
 void ParserDriver::validateRequiredHeadings(size_t line) {

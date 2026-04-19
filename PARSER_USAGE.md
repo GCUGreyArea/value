@@ -81,6 +81,8 @@ Supported config fields are:
 - `column_types_by_name`: object mapping column names to type names
 - `field_requirements`: object mapping field names to `error`, `warning`, or
   `optional`
+- `key_value_requirements`: object mapping metadata keys to `error`, `warning`,
+  or `optional`
 - `validators`: object mapping field names to validator names such as
   `datetime_utc`
 
@@ -93,6 +95,11 @@ Example:
   "field_requirements": {
     "HEADING4": "error",
     "STAMP": "optional"
+  },
+  "key_value_requirements": {
+    "STAMP": "error",
+    "OWNER": "warning",
+    "COMMENT": "optional"
   },
   "validators": {
     "STAMP": "datetime_utc"
@@ -152,6 +159,22 @@ Use `setOptionalHeading()` to clear a previous requirement:
 
 ```cpp
 parser.setOptionalHeading("COMMENT");
+```
+
+### Configure required key-value pairs
+
+Metadata keys are optional by default. Mark them as required when they must be
+present in the key-value section:
+
+```cpp
+parser.setRequiredKeyValuePair("STAMP", DiagnosticSeverity::ERROR);
+parser.setRequiredKeyValuePair("OWNER", DiagnosticSeverity::WARNING);
+```
+
+Use `setOptionalKeyValuePair()` to clear a previous requirement:
+
+```cpp
+parser.setOptionalKeyValuePair("OWNER");
 ```
 
 ### Configure field validators
@@ -259,6 +282,7 @@ Typical diagnostics include:
 
 - unexpected type for a configured column
 - missing required headings
+- missing required key-value pairs
 - field validation failures
 - too many delimiters in a key-value line
 - too many delimiters in a data row

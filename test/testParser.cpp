@@ -491,6 +491,56 @@ TEST_F(testParser, ValidateOptionalHeadingClearsRequirement) {
     EXPECT_TRUE(parser.getDiagnostics().empty());
 }
 
+// Validate missing required KV pairs can be reported as warnings
+TEST_F(testParser, ValidateRequiredKeyValuePairWarning) {
+    const std::string content =
+        "META,val\n"
+        "VALUE,FLAG\n"
+        "42,true\n";
+
+    parser.setExpectedKeyValuePairs(1);
+    parser.setRequiredKeyValuePair("MISSING", DiagnosticSeverity::WARNING);
+
+    EXPECT_TRUE(deserialiseContent(content));
+    EXPECT_EQ(parser.getWarnings().size(), 1u);
+    ASSERT_NE(parser.getLastWarning(), nullptr);
+    EXPECT_NE(
+        parser.getLastWarning()->message.find("Required key-value pair missing"),
+        std::string::npos);
+}
+
+// Validate missing required KV pairs can fail parsing as errors
+TEST_F(testParser, ValidateRequiredKeyValuePairError) {
+    const std::string content =
+        "META,val\n"
+        "VALUE,FLAG\n"
+        "42,true\n";
+
+    parser.setExpectedKeyValuePairs(1);
+    parser.setRequiredKeyValuePair("MISSING", DiagnosticSeverity::ERROR);
+
+    EXPECT_FALSE(deserialiseContent(content));
+    ASSERT_NE(parser.getLastError(), nullptr);
+    EXPECT_NE(
+        parser.getLastError()->message.find("Required key-value pair missing"),
+        std::string::npos);
+}
+
+// Validate optional KV pairs suppress previous missing-key diagnostics
+TEST_F(testParser, ValidateOptionalKeyValuePairClearsRequirement) {
+    const std::string content =
+        "META,val\n"
+        "VALUE,FLAG\n"
+        "42,true\n";
+
+    parser.setExpectedKeyValuePairs(1);
+    parser.setRequiredKeyValuePair("MISSING", DiagnosticSeverity::ERROR);
+    parser.setOptionalKeyValuePair("MISSING");
+
+    EXPECT_TRUE(deserialiseContent(content));
+    EXPECT_TRUE(parser.getDiagnostics().empty());
+}
+
 // Validate registered datetime validators accept the configured UTC format
 TEST_F(testParser, ValidateDateTimeUtcFieldValidatorAcceptsValidValue) {
     const std::string content =

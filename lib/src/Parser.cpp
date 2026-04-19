@@ -205,6 +205,17 @@ void FlgParser::setOptionalHeading(const std::string &heading)
     requiredHeadings.erase(heading);
 }
 
+void FlgParser::setRequiredKeyValuePair(const std::string &key,
+                                        DiagnosticSeverity severity)
+{
+    requiredKeyValuePairs[key] = severity;
+}
+
+void FlgParser::setOptionalKeyValuePair(const std::string &key)
+{
+    requiredKeyValuePairs.erase(key);
+}
+
 void FlgParser::setFieldValidator(const std::string &fieldName,
                                   const std::string &validatorName)
 {
@@ -394,6 +405,7 @@ void FlgParser::clear()
     columnTypeMap.clear();
     columnIndexTypeMap.clear();
     requiredHeadings.clear();
+    requiredKeyValuePairs.clear();
     fieldValidatorMap.clear();
     diagnostics.clear();
     kvPairOrder.clear();
