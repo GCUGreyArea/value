@@ -5,6 +5,10 @@
 /unit_tests
 /example
 /parser_examples
+/bazel-*
+/bazel-bin
+/bazel-out
+/bazel-testlogs
 
 # Local/editor metadata
 /.codex

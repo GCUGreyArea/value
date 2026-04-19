@@ -7,6 +7,11 @@
 class testParser : public ::testing::Test {
 protected:
     FlgParser parser;
+
+    bool deserialiseContent(const std::string& content) {
+        std::istringstream input(content);
+        return parser.deserialise(input);
+    }
     
     void SetUp() override {
         parser.clear();
@@ -22,7 +27,7 @@ TEST_F(testParser, ValidateParseStringSimple) {
         "10,hello,200\n"
         "20,world,300\n";
     
-    EXPECT_TRUE(parser.parseString(content));
+    EXPECT_TRUE(deserialiseContent(content));
     EXPECT_EQ(parser.getRowCount(), 2);
     EXPECT_EQ(parser.getColumnDefinitions().size(), 3);
 }
@@ -36,7 +41,7 @@ TEST_F(testParser, ValidateExtractKeyValuePairs) {
         "value1\n";
 
     parser.setExpectedKeyValuePairs(2);
-    parser.parseString(content);
+    deserialiseContent(content);
     const auto& kv = parser.getKeyValuePairs();
     
     EXPECT_TRUE(kv.contains("KEY1"));
@@ -50,7 +55,7 @@ TEST_F(testParser, ValidateColumnDefinitions) {
         "HEADING1,HEADING2,HEADING3\n"
         "val1,val2,val3\n";
     
-    parser.parseString(content);
+    deserialiseContent(content);
     const auto& cols = parser.getColumnDefinitions();
     
     EXPECT_EQ(cols.size(), 3);
@@ -68,7 +73,7 @@ TEST_F(testParser, ValidateDirectHeaderRowParsing) {
         "10,hello,200\n"
         "20,world,300\n";
 
-    EXPECT_TRUE(parser.parseString(content));
+    EXPECT_TRUE(deserialiseContent(content));
     EXPECT_EQ(parser.getColumnDefinitions().size(), 3);
     EXPECT_EQ(parser.getColumnDefinitions()[0].name, "COL1");
     EXPECT_EQ(parser.getColumnDefinitions()[2].name, "COL3");
@@ -83,7 +88,7 @@ TEST_F(testParser, ValidateRejectsMarkerStyleInput) {
         "COL1,COL2,COL3\n"
         "10,hello,200\n";
 
-    EXPECT_FALSE(parser.parseString(content));
+    EXPECT_FALSE(deserialiseContent(content));
 }
 
 // Validate parse error reports line and column for invalid type
@@ -98,7 +103,7 @@ TEST_F(testParser, ValidateTypeErrorReportsLocation) {
     parser.setColumnType(1, "ACTIVE", ValueType::BOOL);
     parser.setExpectedKeyValuePairs(1);
 
-    EXPECT_FALSE(parser.parseString(content));
+    EXPECT_FALSE(deserialiseContent(content));
     const ParseError* error = parser.getLastError();
     ASSERT_NE(error, nullptr);
     EXPECT_EQ(error->line, 4u);
@@ -115,7 +120,7 @@ TEST_F(testParser, ValidateTooManyDelimitersReportsLocation) {
 
     parser.setExpectedKeyValuePairs(1);
 
-    EXPECT_FALSE(parser.parseString(content));
+    EXPECT_FALSE(deserialiseContent(content));
     const ParseError* error = parser.getLastError();
     ASSERT_NE(error, nullptr);
     EXPECT_EQ(error->line, 3u);
@@ -136,7 +141,7 @@ TEST_F(testParser, ValidateCustomDelimiter) {
     parser.setColumnType(1, "COL2", ValueType::STRING);
     parser.setColumnType(2, "COL3", ValueType::INT);
 
-    EXPECT_TRUE(parser.parseString(content));
+    EXPECT_TRUE(deserialiseContent(content));
     ASSERT_EQ(parser.getRowCount(), 1);
     const auto& row = parser.getRow(0);
     EXPECT_EQ(row.get<int>(0), 10);
@@ -154,7 +159,7 @@ TEST_F(testParser, ValidateExpectedKeyValuePairErrorReportsLocation) {
 
     parser.setExpectedKeyValuePairs(2);
 
-    EXPECT_FALSE(parser.parseString(content));
+    EXPECT_FALSE(deserialiseContent(content));
     const ParseError* error = parser.getLastError();
     ASSERT_NE(error, nullptr);
     EXPECT_EQ(error->line, 2u);
@@ -174,7 +179,7 @@ TEST_F(testParser, ValidateConfigureColumnTypeByIndex) {
     parser.setColumnType(1, "COL2", ValueType::BOOL);
     parser.setExpectedKeyValuePairs(1);
     
-    parser.parseString(content);
+    deserialiseContent(content);
     const auto& cols = parser.getColumnDefinitions();
     
     EXPECT_EQ(cols[0].type, ValueType::INT);
@@ -192,7 +197,7 @@ TEST_F(testParser, ValidateConfigureColumnTypeByName) {
     parser.setColumnTypeByName("FLAG", ValueType::BOOL);
     parser.setExpectedKeyValuePairs(1);
     
-    parser.parseString(content);
+    deserialiseContent(content);
     
     EXPECT_EQ(parser.getColumnType("VALUE"), ValueType::INT);
     EXPECT_EQ(parser.getColumnType("FLAG"), ValueType::BOOL);
@@ -210,7 +215,7 @@ TEST_F(testParser, ValidateAccessDataRows) {
     parser.setColumnType(1, "COL2", ValueType::STRING);
     parser.setColumnType(2, "COL3", ValueType::INT);
     
-    parser.parseString(content);
+    deserialiseContent(content);
     
     EXPECT_EQ(parser.getRowCount(), 2);
     
@@ -229,7 +234,7 @@ TEST_F(testParser, ValidateOutOfBoundsRowAccess) {
         "val1\n";
 
     parser.setExpectedKeyValuePairs(1);
-    parser.parseString(content);
+    deserialiseContent(content);
     
     EXPECT_THROW(parser.getRow(100), std::out_of_range);
 }
@@ -319,7 +324,7 @@ TEST_F(testParser, ValidateMultipleRowsConsistentTypes) {
     parser.setColumnType(1, "NAME", ValueType::STRING);
     parser.setColumnType(2, "ACTIVE", ValueType::BOOL);
     
-    parser.parseString(content);
+    deserialiseContent(content);
     
     EXPECT_EQ(parser.getRowCount(), 3);
     
@@ -338,7 +343,7 @@ TEST_F(testParser, ValidateClearFunctionality) {
         "val1\n";
 
     parser.setExpectedKeyValuePairs(1);
-    parser.parseString(content);
+    deserialiseContent(content);
     EXPECT_EQ(parser.getRowCount(), 1);
     
     parser.clear();
@@ -357,7 +362,7 @@ TEST_F(testParser, ValidateWhitespaceHandling) {
     parser.setColumnType(1, "COL2", ValueType::STRING);
     parser.setExpectedKeyValuePairs(1);
     
-    parser.parseString(content);
+    deserialiseContent(content);
     EXPECT_EQ(parser.getRowCount(), 1);
 }
 
@@ -372,7 +377,7 @@ TEST_F(testParser, ValidateNumericStringParsing) {
     parser.setColumnType(1, "NUM2", ValueType::LONG);
     parser.setColumnType(2, "NUM3", ValueType::UINT32);
     
-    parser.parseString(content);
+    deserialiseContent(content);
     EXPECT_EQ(parser.getRowCount(), 1);
 }
 
@@ -386,13 +391,13 @@ TEST_F(testParser, ValidateReparsingWithDifferentConfigurations) {
     parser.setExpectedKeyValuePairs(1);
     // First parse with INT
     parser.setColumnType(0, "COL", ValueType::INT);
-    parser.parseString(content);
+    deserialiseContent(content);
     EXPECT_EQ(parser.getRowCount(), 1);
     
     // Clear and re-parse with STRING
     parser.clear();
     parser.setColumnType(0, "COL", ValueType::STRING);
-    parser.parseString(content);
+    deserialiseContent(content);
     EXPECT_EQ(parser.getRowCount(), 1);
 }
 
@@ -410,14 +415,147 @@ TEST_F(testParser, ValidateReparsingResetsParsedData) {
         "5,6,7\n";
 
     parser.setExpectedKeyValuePairs(1);
-    EXPECT_TRUE(parser.parseString(first_content));
+    EXPECT_TRUE(deserialiseContent(first_content));
     EXPECT_EQ(parser.getRowCount(), 2);
     EXPECT_EQ(parser.getColumnDefinitions().size(), 2);
 
-    EXPECT_TRUE(parser.parseString(second_content));
+    EXPECT_TRUE(deserialiseContent(second_content));
     EXPECT_EQ(parser.getRowCount(), 1);
     EXPECT_EQ(parser.getColumnDefinitions().size(), 3);
     EXPECT_EQ(parser.getColumnDefinitions()[0].name, "VALUE1");
+}
+
+// Validate serialise writes a stable FLG document for round-tripping
+TEST_F(testParser, ValidateSerialiseRoundTripDocument) {
+    const std::string content =
+        "KEY1,123\n"
+        "KEY2,text\n"
+        "COL1,COL2\n"
+        "alpha,\n"
+        "omega,beta\n";
+
+    parser.setExpectedKeyValuePairs(2);
+    ASSERT_TRUE(deserialiseContent(content));
+
+    std::ostringstream output;
+    ASSERT_TRUE(parser.serialise(output));
+    EXPECT_EQ(output.str(), content);
+}
+
+// Validate missing required headings can be reported as warnings
+TEST_F(testParser, ValidateRequiredHeadingWarning) {
+    const std::string content =
+        "META,val\n"
+        "VALUE,FLAG\n"
+        "42,true\n";
+
+    parser.setExpectedKeyValuePairs(1);
+    parser.setRequiredHeading("MISSING", DiagnosticSeverity::WARNING);
+
+    EXPECT_TRUE(deserialiseContent(content));
+    EXPECT_EQ(parser.getWarnings().size(), 1u);
+    ASSERT_NE(parser.getLastWarning(), nullptr);
+    EXPECT_NE(parser.getLastWarning()->message.find("Required heading missing"),
+              std::string::npos);
+    EXPECT_EQ(parser.getRowCount(), 1);
+}
+
+// Validate missing required headings can fail parsing as errors
+TEST_F(testParser, ValidateRequiredHeadingError) {
+    const std::string content =
+        "META,val\n"
+        "VALUE,FLAG\n"
+        "42,true\n";
+
+    parser.setExpectedKeyValuePairs(1);
+    parser.setRequiredHeading("MISSING", DiagnosticSeverity::ERROR);
+
+    EXPECT_FALSE(deserialiseContent(content));
+    ASSERT_NE(parser.getLastError(), nullptr);
+    EXPECT_NE(parser.getLastError()->message.find("Required heading missing"),
+              std::string::npos);
+}
+
+// Validate optional headings suppress previous required-heading diagnostics
+TEST_F(testParser, ValidateOptionalHeadingClearsRequirement) {
+    const std::string content =
+        "META,val\n"
+        "VALUE,FLAG\n"
+        "42,true\n";
+
+    parser.setExpectedKeyValuePairs(1);
+    parser.setRequiredHeading("MISSING", DiagnosticSeverity::ERROR);
+    parser.setOptionalHeading("MISSING");
+
+    EXPECT_TRUE(deserialiseContent(content));
+    EXPECT_TRUE(parser.getDiagnostics().empty());
+}
+
+// Validate registered datetime validators accept the configured UTC format
+TEST_F(testParser, ValidateDateTimeUtcFieldValidatorAcceptsValidValue) {
+    const std::string content =
+        "STAMP,2026-04-19T12:34:56Z\n"
+        "VALUE\n"
+        "42\n";
+
+    parser.setExpectedKeyValuePairs(1);
+    parser.setFieldValidator("STAMP", createDateTimeUtcValidator());
+
+    EXPECT_TRUE(deserialiseContent(content));
+    EXPECT_TRUE(parser.getDiagnostics().empty());
+}
+
+// Validate registered datetime validators reject invalid values
+TEST_F(testParser, ValidateDateTimeUtcFieldValidatorRejectsInvalidValue) {
+    const std::string content =
+        "STAMP,2026-04-19 12:34:56\n"
+        "VALUE\n"
+        "42\n";
+
+    parser.setExpectedKeyValuePairs(1);
+    parser.setFieldValidator("STAMP", createDateTimeUtcValidator());
+
+    EXPECT_FALSE(deserialiseContent(content));
+    ASSERT_NE(parser.getLastError(), nullptr);
+    EXPECT_NE(
+        parser.getLastError()->message.find("Validation failed for field 'STAMP'"),
+        std::string::npos);
+}
+
+// Validate large documents parse with metadata typing and validators intact
+TEST_F(testParser, ValidateLargeFileParsing) {
+    std::ostringstream content;
+    content
+        << "VERSION,12\n"
+        << "RATE,3.14159\n"
+        << "STAMP,2026-04-19T12:34:56Z\n"
+        << "OWNER,ops\n"
+        << "ENABLED,true\n"
+        << "ID,NAME,SCORE,ACTIVE,NOTES\n";
+
+    for (int index = 0; index < 5000; ++index) {
+        content << index << ",name_" << index << "," << (index * 0.5) << ","
+                << ((index % 2) == 0 ? "true" : "false") << ",row_" << index
+                << "\n";
+    }
+
+    parser.setExpectedKeyValuePairs(5);
+    parser.setColumnType(0, "ID", ValueType::INT);
+    parser.setColumnType(1, "NAME", ValueType::STRING);
+    parser.setColumnType(2, "SCORE", ValueType::DOUBLE);
+    parser.setColumnType(3, "ACTIVE", ValueType::BOOL);
+    parser.setColumnType(4, "NOTES", ValueType::STRING);
+    parser.setFieldValidator("STAMP", createDateTimeUtcValidator());
+
+    EXPECT_TRUE(deserialiseContent(content.str()));
+    EXPECT_EQ(parser.getKeyValuePairs().size(), 5u);
+    EXPECT_DOUBLE_EQ(parser.getKeyValuePairs().get<double>("RATE"), 3.14159);
+    EXPECT_EQ(parser.getKeyValuePairs().get<std::string>("STAMP"),
+              "2026-04-19T12:34:56Z");
+    EXPECT_EQ(parser.getRowCount(), 5000u);
+    EXPECT_EQ(parser.getRow(4999).get<int>(0), 4999);
+    EXPECT_DOUBLE_EQ(parser.getRow(4999).get<double>(2), 2499.5);
+    EXPECT_FALSE(parser.getRow(4999).get<bool>(3));
 }
 
 // Validate column type retrieval by name
@@ -429,7 +567,7 @@ TEST_F(testParser, ValidateGetColumnTypeByName) {
 
     parser.setExpectedKeyValuePairs(1);
     parser.setColumnTypeByName("MYCOLUMN", ValueType::FLOAT);
-    parser.parseString(content);
+    deserialiseContent(content);
     
     EXPECT_EQ(parser.getColumnType("MYCOLUMN"), ValueType::FLOAT);
 }
@@ -442,7 +580,7 @@ TEST_F(testParser, ValidateGetColumnTypeThrowsForMissingColumn) {
         "value\n";
 
     parser.setExpectedKeyValuePairs(1);
-    parser.parseString(content);
+    deserialiseContent(content);
     
     EXPECT_THROW(parser.getColumnType("NONEXISTENT"), std::runtime_error);
 }
@@ -454,7 +592,7 @@ TEST_F(testParser, ValidateParseFileWithNoDataRows) {
         "COL1,COL2\n";
     
     parser.setExpectedKeyValuePairs(1);
-    parser.parseString(content);
+    deserialiseContent(content);
     EXPECT_EQ(parser.getRowCount(), 0);
     EXPECT_EQ(parser.getColumnDefinitions().size(), 2);
 }
@@ -468,7 +606,7 @@ TEST_F(testParser, ValidateParseFileWithSingleColumn) {
         "value2\n";
 
     parser.setExpectedKeyValuePairs(1);
-    parser.parseString(content);
+    deserialiseContent(content);
     EXPECT_EQ(parser.getRowCount(), 2);
     EXPECT_EQ(parser.getColumnDefinitions().size(), 1);
 }
@@ -504,7 +642,7 @@ TEST_F(testParser, ValidateLargeFieldValues) {
 
     parser.setExpectedKeyValuePairs(1);
     parser.setColumnType(0, "LARGETEXT", ValueType::STRING);
-    parser.parseString(content);
+    deserialiseContent(content);
     
     EXPECT_EQ(parser.getRowCount(), 1);
     const auto& row = parser.getRow(0);
@@ -519,7 +657,7 @@ TEST_F(testParser, ValidateEmptyMiddleFieldParsing) {
         "COL1,COL2,COL3\n"
         "alpha,,omega\n";
 
-    parser.parseString(content);
+    deserialiseContent(content);
 
     ASSERT_EQ(parser.getRowCount(), 1);
     const auto& row = parser.getRow(0);
@@ -536,7 +674,7 @@ TEST_F(testParser, ValidateEmptyTrailingFieldParsing) {
         "COL1,COL2,COL3\n"
         "alpha,beta,\n";
 
-    parser.parseString(content);
+    deserialiseContent(content);
 
     ASSERT_EQ(parser.getRowCount(), 1);
     const auto& row = parser.getRow(0);
@@ -557,7 +695,7 @@ TEST_F(testParser, ValidateEmptyTypedFieldFallback) {
     parser.setColumnType(1, "NAME", ValueType::STRING);
     parser.setExpectedKeyValuePairs(1);
 
-    parser.parseString(content);
+    deserialiseContent(content);
 
     ASSERT_EQ(parser.getRowCount(), 1);
     const auto& row = parser.getRow(0);
@@ -576,7 +714,7 @@ TEST_F(testParser, ValidateManyColumns) {
         parser.setColumnType(i, "C" + std::to_string(i + 1), ValueType::INT);
     }
     
-    parser.parseString(content);
+    deserialiseContent(content);
     
     EXPECT_EQ(parser.getColumnDefinitions().size(), 10);
     EXPECT_EQ(parser.getRowCount(), 1);
@@ -597,7 +735,7 @@ TEST_F(testParser, ValidateMixedTypeConfiguration) {
     parser.setColumnType(3, "ACTIVE", ValueType::BOOL);
     parser.setColumnType(4, "TIMESTAMP", ValueType::LONG);
     
-    parser.parseString(content);
+    deserialiseContent(content);
     
     EXPECT_EQ(parser.getRowCount(), 1);
     const auto& row = parser.getRow(0);
@@ -615,7 +753,17 @@ TEST_F(testParser, ValidateParseInputFile) {
     file.close();
     
     // Parse the file
-    EXPECT_TRUE(parser.parseString(buffer.str()));
+    EXPECT_TRUE(parser.deserialise(buffer));
+
+    std::ostringstream serialised;
+    EXPECT_TRUE(parser.serialise(serialised));
+
+    FlgParser roundTripParser;
+    std::istringstream roundTripInput(serialised.str());
+    EXPECT_TRUE(roundTripParser.deserialise(roundTripInput));
+    EXPECT_EQ(roundTripParser.getRowCount(), 2);
+    EXPECT_EQ(roundTripParser.getColumnDefinitions().size(), 15);
+    EXPECT_TRUE(roundTripParser.getKeyValuePairs().contains("KEYONE"));
     
     // Validate structure
     const auto& kv = parser.getKeyValuePairs();

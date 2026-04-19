@@ -38,6 +38,10 @@ private:
     std::unordered_map<std::string, Value> data;
 
 public:
+    const std::unordered_map<std::string, Value>& entries() const {
+        return data;
+    }
+
     template <typename T>
     void set(const std::string& key, const T& value) {
         data[key] = value;

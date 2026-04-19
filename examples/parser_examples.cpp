@@ -1,6 +1,16 @@
 #include "Parser.hpp"
+#include <fstream>
 #include <iostream>
 #include <iomanip>
+
+namespace {
+
+bool loadInputFile(FlgParser& parser) {
+    std::ifstream input("input.flg");
+    return input && parser.deserialise(input);
+}
+
+} // namespace
 
 /**
  * Example 1: Default parsing (all types as STRING)
@@ -11,7 +21,7 @@ void example_default_parsing() {
     FlgParser parser;
     
     // No type configuration - all columns default to STRING
-    if (parser.parseFile("input.flg")) {
+    if (loadInputFile(parser)) {
         std::cout << "Parsed successfully" << std::endl;
         std::cout << "Rows: " << parser.getRowCount() << std::endl;
         
@@ -37,7 +47,7 @@ void example_configure_by_index() {
     parser.setColumnType(4, "HEADING5", ValueType::FLOAT);
     parser.setColumnType(5, "HEADING6", ValueType::UINT32);
     
-    if (parser.parseFile("input.flg")) {
+    if (loadInputFile(parser)) {
         std::cout << "Parsed with configured types" << std::endl;
         
         if (parser.getRowCount() > 0) {
@@ -65,7 +75,7 @@ void example_configure_by_name() {
     parser.setColumnTypeByName("HEADING1", ValueType::FLOAT);
     parser.setColumnTypeByName("HEADING4", ValueType::BOOL);
     
-    if (parser.parseFile("input.flg")) {
+    if (loadInputFile(parser)) {
         std::cout << "Parsed with name-based configuration" << std::endl;
         std::cout << "Column HEADING1 type: " << static_cast<int>(parser.getColumnType("HEADING1")) << std::endl;
         std::cout << "Column HEADING4 type: " << static_cast<int>(parser.getColumnType("HEADING4")) << std::endl;
@@ -84,7 +94,7 @@ void example_type_safe_access() {
     parser.setColumnType(2, "HEADING3", ValueType::INT);
     parser.setColumnType(3, "HEADING4", ValueType::BOOL);
     
-    if (parser.parseFile("input.flg")) {
+    if (loadInputFile(parser)) {
         std::cout << std::left << std::setw(15) << "HEADING1" 
                   << std::setw(15) << "HEADING3"
                   << "HEADING4" << std::endl;
@@ -116,7 +126,7 @@ void example_access_metadata() {
     
     FlgParser parser;
     
-    if (parser.parseFile("input.flg")) {
+    if (loadInputFile(parser)) {
         const auto& kv = parser.getKeyValuePairs();
         
         std::cout << "Key-Value Pairs in file:" << std::endl;
@@ -136,7 +146,7 @@ void example_filter_columns() {
     parser.setColumnType(0, "HEADING1", ValueType::FLOAT);
     parser.setColumnType(3, "HEADING4", ValueType::BOOL);
     
-    if (parser.parseFile("input.flg")) {
+    if (loadInputFile(parser)) {
         std::cout << "Displaying HEADING1 and HEADING4 only:" << std::endl;
         
         for (size_t i = 0; i < parser.getRowCount(); ++i) {
@@ -159,7 +169,7 @@ void example_error_handling() {
     
     parser.setColumnType(0, "HEADING1", ValueType::FLOAT);
     
-    if (parser.parseFile("input.flg")) {
+    if (loadInputFile(parser)) {
         std::cout << "Processing rows with error handling:" << std::endl;
         
         for (size_t i = 0; i < parser.getRowCount(); ++i) {
@@ -194,7 +204,7 @@ void example_dynamic_configuration() {
         parser.setColumnType(3, "HEADING4", ValueType::BOOL);
     }
     
-    if (parser.parseFile("input.flg")) {
+    if (loadInputFile(parser)) {
         std::cout << "Parsed with dynamic configuration" << std::endl;
         std::cout << "Row count: " << parser.getRowCount() << std::endl;
     }
@@ -217,7 +227,7 @@ void example_configuration_reuse() {
     // Parse multiple files with same configuration
     FlgParser parser1;
     configure_standard(parser1);
-    if (parser1.parseFile("input.flg")) {
+    if (loadInputFile(parser1)) {
         std::cout << "File 1 parsed: " << parser1.getRowCount() << " rows" << std::endl;
     }
 }
@@ -235,7 +245,7 @@ void example_display_full_file() {
         parser.setColumnType(i, "HEADING" + std::to_string(i + 1), ValueType::STRING);
     }
     
-    if (parser.parseFile("input.flg")) {
+    if (loadInputFile(parser)) {
         std::cout << "Columns: " << parser.getColumnDefinitions().size() << std::endl;
         std::cout << "Rows: " << parser.getRowCount() << std::endl;
         

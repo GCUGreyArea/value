@@ -3,6 +3,7 @@
 
 #include "Values.hpp"
 #include <functional>
+#include <iosfwd>
 #include <map>
 #include <memory>
 #include <string>
@@ -21,16 +22,26 @@ enum class ValueType {
     FLOAT
 };
 
+enum class DiagnosticSeverity {
+    WARNING,
+    ERROR
+};
+
 struct ColumnDefinition {
     std::string name;
     ValueType type;
 };
 
-struct ParseError {
+struct ParseDiagnostic {
     size_t line;
     size_t column;
+    DiagnosticSeverity severity;
     std::string message;
 };
+
+using ParseError = ParseDiagnostic;
+using StringFieldValidator =
+    std::function<bool(const std::string& value, std::string& errorMessage)>;
 
 class FlgParser {
 public:
@@ -51,11 +62,22 @@ public:
     // Configure column types by header name
     void setColumnTypeByName(const std::string& columnName, ValueType type);
 
-    // Parse a .flg file
-    bool parseFile(const std::string& filename);
+    // Configure required headings. Optional headings are ignored when absent.
+    void setRequiredHeading(
+        const std::string& heading,
+        DiagnosticSeverity severity = DiagnosticSeverity::ERROR);
+    void setOptionalHeading(const std::string& heading);
+    void setFieldValidator(const std::string& fieldName,
+                           const std::string& validatorName);
+    void setFieldValidator(const std::string& fieldName,
+                           StringFieldValidator validator);
+    void clearFieldValidator(const std::string& fieldName);
 
-    // Parse from a string
-    bool parseString(const std::string& content);
+    // Write the current state as FLG data.
+    bool serialise(std::ostream& output) const;
+
+    // Read FLG data from a stream.
+    bool deserialise(std::istream& input);
 
     // Get the key-value pairs from the file header
     ValueMap& getKeyValuePairs() { return kvPairs; }
@@ -81,8 +103,13 @@ public:
     size_t getRowCount() const { return dataRows.size(); }
 
     // Get parse diagnostics from the most recent parse attempt.
-    const std::vector<ParseError>& getErrors() const { return errors; }
-    const ParseError* getLastError() const;
+    const std::vector<ParseDiagnostic>& getDiagnostics() const {
+        return diagnostics;
+    }
+    std::vector<ParseDiagnostic> getErrors() const;
+    std::vector<ParseDiagnostic> getWarnings() const;
+    const ParseDiagnostic* getLastError() const;
+    const ParseDiagnostic* getLastWarning() const;
 
     // Clear all parsed data
     void clear();
@@ -96,18 +123,25 @@ private:
     std::vector<ValueVector> dataRows;
     std::map<std::string, ValueType> columnTypeMap;
     std::map<size_t, ValueType> columnIndexTypeMap;
+    std::map<std::string, DiagnosticSeverity> requiredHeadings;
+    std::map<std::string, std::string> fieldValidatorMap;
     size_t expectedKVPairs; // Number of expected key-value pairs (0 = unlimited)
     char delimiter;
-    std::vector<ParseError> errors;
+    std::vector<ParseDiagnostic> diagnostics;
+    std::vector<std::string> kvPairOrder;
 
-    friend class FlgLexer;
-    friend int yyparse();
+    friend class ParserDriver;
 };
 
-// Functions called from the parser
-extern FlgParser* g_parser;
-
+bool tryParseValue(const std::string& str, ValueType type, Value& result);
 Value parseValue(const std::string& str, ValueType type);
 std::string valueToString(const Value& v);
+void registerValidator(const std::string& validatorName,
+                       StringFieldValidator validator);
+bool hasValidator(const std::string& validatorName);
+void clearValidator(const std::string& validatorName);
+StringFieldValidator getValidator(const std::string& validatorName);
+std::vector<std::string> listValidatorNames();
+StringFieldValidator createDateTimeUtcValidator();
 
 #endif // PARSER_HPP

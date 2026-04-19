@@ -1,151 +1,532 @@
 #include "Parser.hpp"
-#include <fstream>
-#include <sstream>
-#include <iostream>
-#include <cctype>
+#include "ParserDriver.hpp"
 #include <algorithm>
+#include <cctype>
+#include <sstream>
 
-// TODO: Re-enable when Flex/Bison integration is fixed
-// extern FILE* yyin;
-// extern int yylex();
-// extern int yyparse();
+namespace
+{
 
-// Global parser instance for use by Flex/Bison (when re-enabled)
-FlgParser* g_parser = nullptr;
-
-namespace {
-
-struct FieldSpan {
-    std::string value;
-    size_t column;
-};
-
-std::string trimCopy(const std::string& input) {
-    const size_t first = input.find_first_not_of(" \t\r\n");
-    if (first == std::string::npos) {
-        return "";
-    }
-
-    const size_t last = input.find_last_not_of(" \t\r\n");
-    return input.substr(first, last - first + 1);
-}
-
-size_t findFirstNonWhitespaceColumn(const std::string& line) {
-    const size_t first = line.find_first_not_of(" \t\r\n");
-    return first == std::string::npos ? 1 : first + 1;
-}
-
-size_t countDelimiters(const std::string& line, char delimiter) {
-    return static_cast<size_t>(std::count(line.begin(), line.end(), delimiter));
-}
-
-std::vector<FieldSpan> splitDelimitedPreserveEmpty(const std::string& line,
-                                                   char delimiter) {
-    std::vector<FieldSpan> fields;
-    size_t start = 0;
-
-    while (true) {
-        const size_t delimiter_pos = line.find(delimiter, start);
-        if (delimiter_pos == std::string::npos) {
-            fields.push_back({line.substr(start), start + 1});
-            break;
+    std::string trimCopy(const std::string &input)
+    {
+        const size_t first = input.find_first_not_of(" \t\r\n");
+        if (first == std::string::npos)
+        {
+            return "";
         }
 
-        fields.push_back({line.substr(start, delimiter_pos - start), start + 1});
-        start = delimiter_pos + 1;
+        const size_t last = input.find_last_not_of(" \t\r\n");
+        return input.substr(first, last - first + 1);
     }
 
-    return fields;
-}
+    bool isBoolean(const std::string &str, bool &result)
+    {
+        std::string lower = str;
+        std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
 
-std::string valueTypeToString(ValueType type) {
-    switch (type) {
-    case ValueType::INT:
-        return "INT";
-    case ValueType::LONG:
-        return "LONG";
-    case ValueType::STRING:
-        return "STRING";
-    case ValueType::UINT8:
-        return "UINT8";
-    case ValueType::UINT16:
-        return "UINT16";
-    case ValueType::UINT32:
-        return "UINT32";
-    case ValueType::UINT64:
-        return "UINT64";
-    case ValueType::BOOL:
-        return "BOOL";
-    case ValueType::DOUBLE:
-        return "DOUBLE";
-    case ValueType::FLOAT:
-        return "FLOAT";
+        if (lower == "true")
+        {
+            result = true;
+            return true;
+        }
+
+        if (lower == "false")
+        {
+            result = false;
+            return true;
+        }
+
+        return false;
     }
-    return "UNKNOWN";
-}
 
-bool isBoolean(const std::string& str, bool& result) {
-    std::string lower = str;
-    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+    bool parseFixedWidthNumber(const std::string &input,
+                               size_t offset,
+                               size_t width,
+                               int &result)
+    {
+        if (offset + width > input.size())
+        {
+            return false;
+        }
 
-    if (lower == "true") {
-        result = true;
+        int value = 0;
+        for (size_t index = 0; index < width; ++index)
+        {
+            const unsigned char ch = static_cast<unsigned char>(input[offset + index]);
+            if (!std::isdigit(ch))
+            {
+                return false;
+            }
+
+            value = (value * 10) + static_cast<int>(ch - '0');
+        }
+
+        result = value;
         return true;
-    } else if (lower == "false") {
-        result = false;
+    }
+
+    bool isLeapYear(int year)
+    {
+        return (year % 400 == 0) || ((year % 4 == 0) && (year % 100 != 0));
+    }
+
+    bool isValidDateTimeUtc(const std::string &value, std::string &errorMessage)
+    {
+        if (value.size() != 20 || value[4] != '-' || value[7] != '-' ||
+            value[10] != 'T' || value[13] != ':' || value[16] != ':' ||
+            value[19] != 'Z')
+        {
+            errorMessage = "expected format YYYY-MM-DDTHH:MM:SSZ";
+            return false;
+        }
+
+        int year = 0;
+        int month = 0;
+        int day = 0;
+        int hour = 0;
+        int minute = 0;
+        int second = 0;
+        if (!parseFixedWidthNumber(value, 0, 4, year) ||
+            !parseFixedWidthNumber(value, 5, 2, month) ||
+            !parseFixedWidthNumber(value, 8, 2, day) ||
+            !parseFixedWidthNumber(value, 11, 2, hour) ||
+            !parseFixedWidthNumber(value, 14, 2, minute) ||
+            !parseFixedWidthNumber(value, 17, 2, second))
+        {
+            errorMessage = "expected numeric components in YYYY-MM-DDTHH:MM:SSZ";
+            return false;
+        }
+
+        if (month < 1 || month > 12)
+        {
+            errorMessage = "month must be between 01 and 12";
+            return false;
+        }
+
+        static const int daysPerMonth[] = {31, 28, 31, 30, 31, 30,
+                                           31, 31, 30, 31, 30, 31};
+        int maxDay = daysPerMonth[month - 1];
+        if (month == 2 && isLeapYear(year))
+        {
+            maxDay = 29;
+        }
+
+        if (day < 1 || day > maxDay)
+        {
+            errorMessage = "day is out of range for the month";
+            return false;
+        }
+
+        if (hour < 0 || hour > 23)
+        {
+            errorMessage = "hour must be between 00 and 23";
+            return false;
+        }
+
+        if (minute < 0 || minute > 59)
+        {
+            errorMessage = "minute must be between 00 and 59";
+            return false;
+        }
+
+        if (second < 0 || second > 59)
+        {
+            errorMessage = "second must be between 00 and 59";
+            return false;
+        }
+
         return true;
     }
-    return false;
+
+    std::map<std::string, StringFieldValidator> &validatorRegistry()
+    {
+        static std::map<std::string, StringFieldValidator> registry = []
+        {
+            std::map<std::string, StringFieldValidator> validators;
+            validators.emplace("datetime_utc", createDateTimeUtcValidator());
+            return validators;
+        }();
+
+        return registry;
+    }
+
+} // namespace
+
+FlgParser::FlgParser() : expectedKVPairs(0), delimiter(',') {}
+
+FlgParser::~FlgParser() {}
+
+void FlgParser::setExpectedKeyValuePairs(size_t count)
+{
+    expectedKVPairs = count;
 }
 
-bool tryParseValue(const std::string& str, ValueType type, Value& result) {
+void FlgParser::setDelimiter(char newDelimiter)
+{
+    delimiter = newDelimiter;
+}
+
+void FlgParser::setColumnType(size_t columnIndex,
+                              const std::string &columnName,
+                              ValueType type)
+{
+    columnIndexTypeMap[columnIndex] = type;
+    columnTypeMap[columnName] = type;
+
+    if (columnIndex < columns.size())
+    {
+        columns[columnIndex].type = type;
+    }
+}
+
+void FlgParser::setColumnTypeByName(const std::string &columnName,
+                                    ValueType type)
+{
+    columnTypeMap[columnName] = type;
+
+    for (auto &column : columns)
+    {
+        if (column.name == columnName)
+        {
+            column.type = type;
+            break;
+        }
+    }
+}
+
+void FlgParser::setRequiredHeading(const std::string &heading,
+                                   DiagnosticSeverity severity)
+{
+    requiredHeadings[heading] = severity;
+}
+
+void FlgParser::setOptionalHeading(const std::string &heading)
+{
+    requiredHeadings.erase(heading);
+}
+
+void FlgParser::setFieldValidator(const std::string &fieldName,
+                                  const std::string &validatorName)
+{
+    if (!hasValidator(validatorName))
+    {
+        throw std::runtime_error("Unknown validator: " + validatorName);
+    }
+
+    fieldValidatorMap[fieldName] = validatorName;
+}
+
+void FlgParser::setFieldValidator(const std::string &fieldName,
+                                  StringFieldValidator validator)
+{
+    registerValidator(fieldName, std::move(validator));
+    fieldValidatorMap[fieldName] = fieldName;
+}
+
+void FlgParser::clearFieldValidator(const std::string &fieldName)
+{
+    fieldValidatorMap.erase(fieldName);
+}
+
+bool FlgParser::serialise(std::ostream &output) const
+{
+    const auto writeField = [this, &output](const std::string &field,
+                                            bool lastField)
+    {
+        output << field;
+        output << (lastField ? '\n' : delimiter);
+        return static_cast<bool>(output);
+    };
+
+    if (columns.empty())
+    {
+        return kvPairs.size() == 0 && dataRows.empty();
+    }
+
+    const auto &kvEntries = kvPairs.entries();
+    for (const auto &key : kvPairOrder)
+    {
+        const auto it = kvEntries.find(key);
+        if (it == kvEntries.end())
+        {
+            continue;
+        }
+
+        if (!writeField(key, false) ||
+            !writeField(valueToString(it->second), true))
+        {
+            return false;
+        }
+    }
+
+    std::vector<std::string> unorderedKeys;
+    unorderedKeys.reserve(kvEntries.size());
+    for (const auto &entry : kvEntries)
+    {
+        if (std::find(kvPairOrder.begin(), kvPairOrder.end(), entry.first) ==
+            kvPairOrder.end())
+        {
+            unorderedKeys.push_back(entry.first);
+        }
+    }
+    std::sort(unorderedKeys.begin(), unorderedKeys.end());
+
+    for (const auto &key : unorderedKeys)
+    {
+        if (!writeField(key, false) ||
+            !writeField(valueToString(kvEntries.at(key)), true))
+        {
+            return false;
+        }
+    }
+
+    for (size_t columnIndex = 0; columnIndex < columns.size(); ++columnIndex)
+    {
+        if (!writeField(columns[columnIndex].name,
+                        columnIndex + 1 == columns.size()))
+        {
+            return false;
+        }
+    }
+
+    for (const auto &row : dataRows)
+    {
+        if (row.size() != columns.size())
+        {
+            return false;
+        }
+
+        for (size_t columnIndex = 0; columnIndex < row.size(); ++columnIndex)
+        {
+            if (!writeField(valueToString(row.at(columnIndex)),
+                            columnIndex + 1 == row.size()))
+            {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+bool FlgParser::deserialise(std::istream &input)
+{
+    ParserDriver driver(*this);
+    return driver.parse(input);
+}
+
+std::vector<ParseDiagnostic> FlgParser::getErrors() const
+{
+    std::vector<ParseDiagnostic> errors;
+    for (const auto &diagnostic : diagnostics)
+    {
+        if (diagnostic.severity == DiagnosticSeverity::ERROR)
+        {
+            errors.push_back(diagnostic);
+        }
+    }
+    return errors;
+}
+
+std::vector<ParseDiagnostic> FlgParser::getWarnings() const
+{
+    std::vector<ParseDiagnostic> warnings;
+    for (const auto &diagnostic : diagnostics)
+    {
+        if (diagnostic.severity == DiagnosticSeverity::WARNING)
+        {
+            warnings.push_back(diagnostic);
+        }
+    }
+    return warnings;
+}
+
+const ParseDiagnostic *FlgParser::getLastError() const
+{
+    for (auto it = diagnostics.rbegin(); it != diagnostics.rend(); ++it)
+    {
+        if (it->severity == DiagnosticSeverity::ERROR)
+        {
+            return &(*it);
+        }
+    }
+
+    return nullptr;
+}
+
+const ParseDiagnostic *FlgParser::getLastWarning() const
+{
+    for (auto it = diagnostics.rbegin(); it != diagnostics.rend(); ++it)
+    {
+        if (it->severity == DiagnosticSeverity::WARNING)
+        {
+            return &(*it);
+        }
+    }
+
+    return nullptr;
+}
+
+ValueType FlgParser::getColumnType(const std::string &columnName) const
+{
+    const auto configuredType = columnTypeMap.find(columnName);
+    if (configuredType != columnTypeMap.end())
+    {
+        return configuredType->second;
+    }
+
+    for (const auto &column : columns)
+    {
+        if (column.name == columnName)
+        {
+            return column.type;
+        }
+    }
+
+    throw std::runtime_error("Column not found: " + columnName);
+}
+
+void FlgParser::clear()
+{
+    kvPairs.clear();
+    columns.clear();
+    dataRows.clear();
+    columnTypeMap.clear();
+    columnIndexTypeMap.clear();
+    requiredHeadings.clear();
+    fieldValidatorMap.clear();
+    diagnostics.clear();
+    kvPairOrder.clear();
+}
+
+bool tryParseValue(const std::string &str, ValueType type, Value &result)
+{
     const std::string trimmed = trimCopy(str);
 
-    if (trimmed.empty()) {
+    if (trimmed.empty())
+    {
         result = Value(trimmed);
         return true;
     }
 
-    try {
-        switch (type) {
+    try
+    {
+        switch (type)
+        {
         case ValueType::INT:
-            result = Value(std::stoi(trimmed));
+        {
+            size_t parsedLength = 0;
+            const int parsedValue = std::stoi(trimmed, &parsedLength);
+            if (parsedLength != trimmed.size())
+            {
+                break;
+            }
+            result = Value(parsedValue);
             return true;
+        }
         case ValueType::LONG:
-            result = Value(static_cast<long>(std::stoll(trimmed)));
+        {
+            size_t parsedLength = 0;
+            const long long parsedValue = std::stoll(trimmed, &parsedLength);
+            if (parsedLength != trimmed.size())
+            {
+                break;
+            }
+            result = Value(static_cast<long>(parsedValue));
             return true;
+        }
         case ValueType::UINT8:
-            result = Value(static_cast<std::uint8_t>(std::stoul(trimmed)));
+        {
+            size_t parsedLength = 0;
+            const unsigned long parsedValue = std::stoul(trimmed, &parsedLength);
+            if (parsedLength != trimmed.size())
+            {
+                break;
+            }
+            result = Value(static_cast<std::uint8_t>(parsedValue));
             return true;
+        }
         case ValueType::UINT16:
-            result = Value(static_cast<std::uint16_t>(std::stoul(trimmed)));
+        {
+            size_t parsedLength = 0;
+            const unsigned long parsedValue = std::stoul(trimmed, &parsedLength);
+            if (parsedLength != trimmed.size())
+            {
+                break;
+            }
+            result = Value(static_cast<std::uint16_t>(parsedValue));
             return true;
+        }
         case ValueType::UINT32:
-            result = Value(static_cast<std::uint32_t>(std::stoul(trimmed)));
+        {
+            size_t parsedLength = 0;
+            const unsigned long parsedValue = std::stoul(trimmed, &parsedLength);
+            if (parsedLength != trimmed.size())
+            {
+                break;
+            }
+            result = Value(static_cast<std::uint32_t>(parsedValue));
             return true;
+        }
         case ValueType::UINT64:
-            result = Value(static_cast<std::uint64_t>(std::stoull(trimmed)));
+        {
+            size_t parsedLength = 0;
+            const unsigned long long parsedValue =
+                std::stoull(trimmed, &parsedLength);
+            if (parsedLength != trimmed.size())
+            {
+                break;
+            }
+            result = Value(static_cast<std::uint64_t>(parsedValue));
             return true;
-        case ValueType::BOOL: {
-            bool bool_result;
-            if (isBoolean(trimmed, bool_result)) {
-                result = Value(bool_result);
+        }
+        case ValueType::BOOL:
+        {
+            bool boolResult = false;
+            if (isBoolean(trimmed, boolResult))
+            {
+                result = Value(boolResult);
                 return true;
             }
-            result = Value(std::stoll(trimmed) != 0);
+
+            size_t parsedLength = 0;
+            const long long parsedValue = std::stoll(trimmed, &parsedLength);
+            if (parsedLength != trimmed.size())
+            {
+                break;
+            }
+            result = Value(parsedValue != 0);
             return true;
         }
         case ValueType::DOUBLE:
-            result = Value(std::stod(trimmed));
+        {
+            size_t parsedLength = 0;
+            const double parsedValue = std::stod(trimmed, &parsedLength);
+            if (parsedLength != trimmed.size())
+            {
+                break;
+            }
+            result = Value(parsedValue);
             return true;
+        }
         case ValueType::FLOAT:
-            result = Value(std::stof(trimmed));
+        {
+            size_t parsedLength = 0;
+            const float parsedValue = std::stof(trimmed, &parsedLength);
+            if (parsedLength != trimmed.size())
+            {
+                break;
+            }
+            result = Value(parsedValue);
             return true;
+        }
         case ValueType::STRING:
             result = Value(trimmed);
             return true;
         }
-    } catch (...) {
+    }
+    catch (...)
+    {
         result = Value(trimmed);
         return type == ValueType::STRING;
     }
@@ -154,290 +535,101 @@ bool tryParseValue(const std::string& str, ValueType type, Value& result) {
     return false;
 }
 
-void parseHeaderLine(const std::string& line,
-                     char delimiter,
-                     const std::map<size_t, ValueType>& columnIndexTypeMap,
-                     const std::map<std::string, ValueType>& columnTypeMap,
-                     std::vector<ColumnDefinition>& columns) {
-    const std::vector<FieldSpan> header_fields =
-        splitDelimitedPreserveEmpty(line, delimiter);
-
-    for (size_t col_index = 0; col_index < header_fields.size(); ++col_index) {
-        const std::string header = trimCopy(header_fields[col_index].value);
-
-        ColumnDefinition col;
-        col.name = header;
-        col.type = ValueType::STRING;
-
-        const auto index_it = columnIndexTypeMap.find(col_index);
-        if (index_it != columnIndexTypeMap.end()) {
-            col.type = index_it->second;
-        } else {
-            const auto name_it = columnTypeMap.find(header);
-            if (name_it != columnTypeMap.end()) {
-                col.type = name_it->second;
-            }
-        }
-
-        columns.push_back(col);
-    }
-}
-
-} // namespace
-
-FlgParser::FlgParser() : expectedKVPairs(0), delimiter(',') {}
-
-FlgParser::~FlgParser() {}
-
-void FlgParser::setExpectedKeyValuePairs(size_t count) {
-    expectedKVPairs = count;
-}
-
-void FlgParser::setDelimiter(char newDelimiter) {
-    delimiter = newDelimiter;
-}
-
-void FlgParser::setColumnType(size_t columnIndex,
-                               const std::string& columnName, ValueType type) {
-    columnIndexTypeMap[columnIndex] = type;
-    columnTypeMap[columnName] = type;
-
-    if (columnIndex < columns.size()) {
-        columns[columnIndex].type = type;
-    }
-}
-
-void FlgParser::setColumnTypeByName(const std::string& columnName,
-                                     ValueType type) {
-    columnTypeMap[columnName] = type;
-
-    for (auto& col : columns) {
-        if (col.name == columnName) {
-            col.type = type;
-            break;
-        }
-    }
-}
-
-bool FlgParser::parseFile(const std::string& filename) {
-    // TODO: Fix Flex/Bison integration
-    // For now, use parseString with file contents
-    std::ifstream file(filename);
-    if (!file) {
-        errors.clear();
-        errors.push_back({1, 1, "Cannot open file: " + filename});
-        return false;
-    }
-    
-    std::stringstream buffer;
-    buffer << file.rdbuf();
-    return parseString(buffer.str());
-}
-
-bool FlgParser::parseString(const std::string& content) {
-    // Reset previously parsed data while preserving configured types.
-    kvPairs.clear();
-    columns.clear();
-    dataRows.clear();
-    errors.clear();
-
-    std::istringstream iss(content);
-    std::string line;
-    bool parsing_kv = true;
-    bool headers_parsed = false;
-    size_t kv_count = 0;
-    size_t line_number = 0;
-
-    const auto addError = [this](size_t line, size_t column,
-                                 const std::string& message) {
-        errors.push_back({line, column, message});
-        return false;
-    };
-
-    while (std::getline(iss, line)) {
-        line_number++;
-
-        if (trimCopy(line).empty()) {
-            continue;
-        }
-
-        if (parsing_kv && !headers_parsed) {
-            const std::string trimmed_line = trimCopy(line);
-            const size_t delimiter_count = countDelimiters(trimmed_line, delimiter);
-
-            if (expectedKVPairs > 0 && kv_count < expectedKVPairs) {
-                if (delimiter_count == 0) {
-                    return addError(line_number, findFirstNonWhitespaceColumn(line),
-                                    "Expected a key-value pair separated by '" +
-                                        std::string(1, delimiter) + "'");
-                }
-                if (delimiter_count > 1) {
-                    const size_t second_delimiter =
-                        trimmed_line.find(delimiter, trimmed_line.find(delimiter) + 1);
-                    return addError(line_number, second_delimiter + 1,
-                                    "Too many delimiters in key-value pair");
-                }
-
-                const size_t delimiter_pos = trimmed_line.find(delimiter);
-                const std::string key = trimCopy(trimmed_line.substr(0, delimiter_pos));
-                const std::string val =
-                    trimCopy(trimmed_line.substr(delimiter_pos + 1));
-                if (key.empty()) {
-                    return addError(line_number, 1, "Key-value pair is missing a key");
-                }
-                kvPairs.set(key, parseValue(val, val.find('.') != std::string::npos
-                                                     ? ValueType::DOUBLE
-                                                     : ValueType::LONG));
-                kv_count++;
-                continue;
-            }
-
-            if (expectedKVPairs > 0 && kv_count == expectedKVPairs) {
-                parsing_kv = false;
-                parseHeaderLine(trimmed_line, delimiter, columnIndexTypeMap,
-                                columnTypeMap, columns);
-                headers_parsed = true;
-                continue;
-            }
-
-            if (delimiter_count == 1) {
-                const size_t delimiter_pos = trimmed_line.find(delimiter);
-                const std::string key = trimCopy(trimmed_line.substr(0, delimiter_pos));
-                const std::string val =
-                    trimCopy(trimmed_line.substr(delimiter_pos + 1));
-                if (key.empty()) {
-                    return addError(line_number, 1, "Key-value pair is missing a key");
-                }
-
-                try {
-                    if (val.find('.') != std::string::npos) {
-                        kvPairs.set(key, std::stod(val));
-                    } else {
-                        kvPairs.set(key, static_cast<long>(std::stoll(val)));
-                    }
-                } catch (...) {
-                    kvPairs.set(key, val);
-                }
-                kv_count++;
-                continue;
-            }
-
-            if (delimiter_count > 1) {
-                parsing_kv = false;
-                parseHeaderLine(trimmed_line, delimiter, columnIndexTypeMap,
-                                columnTypeMap, columns);
-                headers_parsed = true;
-                continue;
-            }
-
-            return addError(line_number, findFirstNonWhitespaceColumn(line),
-                            "Expected either a key-value pair or a delimited header row");
-        } else if (headers_parsed) {
-            ValueVector row;
-            const std::vector<FieldSpan> fields =
-                splitDelimitedPreserveEmpty(line, delimiter);
-
-            for (size_t col_index = 0;
-                 col_index < fields.size() && col_index < columns.size();
-                 ++col_index) {
-                Value parsed;
-                const std::string trimmed_field = trimCopy(fields[col_index].value);
-                const ValueType expected_type = columns[col_index].type;
-
-                if (!tryParseValue(trimmed_field, expected_type, parsed)) {
-                    return addError(
-                        line_number,
-                        fields[col_index].column,
-                        "Unexpected type for column '" + columns[col_index].name +
-                            "': expected " + valueTypeToString(expected_type) +
-                            ", got '" + trimmed_field + "'");
-                }
-
-                row.push(parsed);
-            }
-
-            if (fields.size() != columns.size()) {
-                if (fields.size() > columns.size()) {
-                    return addError(
-                        line_number,
-                        fields[columns.size()].column,
-                        "Too many delimiters in data row");
-                }
-
-                return addError(line_number, line.size() + 1,
-                                "Too few fields in data row");
-            }
-
-            dataRows.push_back(row);
-        }
-    }
-
-    if (!headers_parsed) {
-        return addError(line_number == 0 ? 1 : line_number, 1,
-                        "Input did not contain a header row");
-    }
-
-    return true;
-}
-
-const ParseError* FlgParser::getLastError() const {
-    if (errors.empty()) {
-        return nullptr;
-    }
-
-    return &errors.back();
-}
-
-ValueType FlgParser::getColumnType(const std::string& columnName) const {
-    auto it = columnTypeMap.find(columnName);
-    if (it != columnTypeMap.end()) {
-        return it->second;
-    }
-
-    for (const auto& col : columns) {
-        if (col.name == columnName) {
-            return col.type;
-        }
-    }
-
-    throw std::runtime_error("Column not found: " + columnName);
-}
-
-void FlgParser::clear() {
-    kvPairs.clear();
-    columns.clear();
-    dataRows.clear();
-    columnTypeMap.clear();
-    columnIndexTypeMap.clear();
-}
-
-Value parseValue(const std::string& str, ValueType type) {
+Value parseValue(const std::string &str, ValueType type)
+{
     Value result;
     tryParseValue(str, type, result);
     return result;
 }
 
-std::string valueToString(const Value& v) {
-    if (std::holds_alternative<int>(v)) {
-        return std::to_string(std::get<int>(v));
-    } else if (std::holds_alternative<long>(v)) {
-        return std::to_string(std::get<long>(v));
-    } else if (std::holds_alternative<std::string>(v)) {
-        return std::get<std::string>(v);
-    } else if (std::holds_alternative<std::uint8_t>(v)) {
-        return std::to_string(std::get<std::uint8_t>(v));
-    } else if (std::holds_alternative<std::uint16_t>(v)) {
-        return std::to_string(std::get<std::uint16_t>(v));
-    } else if (std::holds_alternative<std::uint32_t>(v)) {
-        return std::to_string(std::get<std::uint32_t>(v));
-    } else if (std::holds_alternative<std::uint64_t>(v)) {
-        return std::to_string(std::get<std::uint64_t>(v));
-    } else if (std::holds_alternative<bool>(v)) {
-        return std::get<bool>(v) ? "true" : "false";
-    } else if (std::holds_alternative<double>(v)) {
-        return std::to_string(std::get<double>(v));
-    } else if (std::holds_alternative<float>(v)) {
-        return std::to_string(std::get<float>(v));
+std::string valueToString(const Value &value)
+{
+    if (std::holds_alternative<int>(value))
+    {
+        return std::to_string(std::get<int>(value));
     }
+    if (std::holds_alternative<long>(value))
+    {
+        return std::to_string(std::get<long>(value));
+    }
+    if (std::holds_alternative<std::string>(value))
+    {
+        return std::get<std::string>(value);
+    }
+    if (std::holds_alternative<std::uint8_t>(value))
+    {
+        return std::to_string(std::get<std::uint8_t>(value));
+    }
+    if (std::holds_alternative<std::uint16_t>(value))
+    {
+        return std::to_string(std::get<std::uint16_t>(value));
+    }
+    if (std::holds_alternative<std::uint32_t>(value))
+    {
+        return std::to_string(std::get<std::uint32_t>(value));
+    }
+    if (std::holds_alternative<std::uint64_t>(value))
+    {
+        return std::to_string(std::get<std::uint64_t>(value));
+    }
+    if (std::holds_alternative<bool>(value))
+    {
+        return std::get<bool>(value) ? "true" : "false";
+    }
+    if (std::holds_alternative<double>(value))
+    {
+        return std::to_string(std::get<double>(value));
+    }
+    if (std::holds_alternative<float>(value))
+    {
+        return std::to_string(std::get<float>(value));
+    }
+
     return "";
+}
+
+void registerValidator(const std::string &validatorName,
+                       StringFieldValidator validator)
+{
+    validatorRegistry()[validatorName] = std::move(validator);
+}
+
+bool hasValidator(const std::string &validatorName)
+{
+    return validatorRegistry().find(validatorName) != validatorRegistry().end();
+}
+
+void clearValidator(const std::string &validatorName)
+{
+    validatorRegistry().erase(validatorName);
+}
+
+StringFieldValidator getValidator(const std::string &validatorName)
+{
+    const auto it = validatorRegistry().find(validatorName);
+    if (it == validatorRegistry().end())
+    {
+        throw std::runtime_error("Unknown validator: " + validatorName);
+    }
+
+    return it->second;
+}
+
+std::vector<std::string> listValidatorNames()
+{
+    std::vector<std::string> names;
+    names.reserve(validatorRegistry().size());
+    for (const auto &entry : validatorRegistry())
+    {
+        names.push_back(entry.first);
+    }
+    return names;
+}
+
+StringFieldValidator createDateTimeUtcValidator()
+{
+    return [](const std::string &value, std::string &errorMessage)
+    {
+        return isValidDateTimeUtc(value, errorMessage);
+    };
 }
