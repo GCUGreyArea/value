@@ -2,17 +2,21 @@
 
 ## Overview
 
-The FLG Parser is a flexible, configurable parser for `.flg` (File with
-Key-Value pairs, Headers, and CSV data) files. The active runtime path in this
-repository is the manual parser in `lib/src/Parser.cpp`, which integrates with
-the `Value` type system for type-safe storage. The Flex/Bison sources remain in
-the tree as reference grammar assets and possible future implementation paths.
+The FLG parser is a configurable parser for `.flg` files containing:
+
+- leading key-value metadata
+- one header row
+- zero or more data rows
+
+The active runtime path uses a generated Flex lexer and Bison grammar, with a
+parser driver layered on top to keep FLG-specific heuristics and diagnostics out
+of the grammar itself.
 
 ## Architecture
 
 ### Components
 
-```
+```text
 ┌─────────────────────────────────────────┐
 │     Application Code                    │
 │  (tests, examples, user code)           │
@@ -23,13 +27,13 @@ the tree as reference grammar assets and possible future implementation paths.
         │ (Parser.hpp)    │
         └────────┬────────┘
                  │
-    ┌────────────┼──────────────┐
-    │            │              │
-┌───▼─────┐ ┌────▼──────┐ ┌─────▼──┐
-│ Manual  │ │ Reference │ │Value   │
-│ Parser  │ │ Grammar   │ │System  │
-│(.cpp)   │ │(l / y)    │ │        │
-└─────────┘ └───────────┘ └────────┘
+    ┌────────────┼──────────────┬─────────────┐
+    │            │              │             │
+┌───▼────────┐ ┌─▼───────────┐ ┌▼──────────┐ ┌▼───────┐
+│ Parser     │ │ Flex Lexer  │ │ Bison     │ │ Value  │
+│ Driver     │ │ (parser.l)  │ │ Grammar   │ │ System │
+│            │ │             │ │ (parser.y)│ │        │
+└────────────┘ └─────────────┘ └───────────┘ └────────┘
 ```
 
 ### Files
@@ -37,10 +41,15 @@ the tree as reference grammar assets and possible future implementation paths.
 | File | Purpose |
 |------|---------|
 | `lib/include/Parser.hpp` | Parser API definition and configuration |
+| `lib/include/ParserConfig.hpp` | Shared JSON configuration helpers |
+| `lib/include/ParserDriver.hpp` | Driver-owned parser state types |
 | `lib/include/Values.hpp` | Value type system (variants and containers) |
-| `lib/src/Parser.cpp` | Active parser implementation and helpers |
-| `lib/src/parser.l` | Reference lexer specification |
-| `lib/src/parser.y` | Reference grammar specification |
+| `lib/src/Parser.cpp` | Public parser implementation and helpers |
+| `lib/src/ParserConfig.cpp` | JSON config parsing and named validator binding |
+| `lib/src/ParserDriver.cpp` | Driver implementation and diagnostics policy |
+| `lib/src/parser.l` | Active lexer specification |
+| `lib/src/parser.y` | Active grammar specification |
+| `examples/custom_validators.cpp` | Example external validator registration unit |
 
 ## Design Decisions
 
@@ -49,135 +58,108 @@ the tree as reference grammar assets and possible future implementation paths.
 **Decision**: Use `std::variant` to store heterogeneous types
 
 **Rationale**:
+
 - Type-safe at compile time
 - No runtime overhead of virtual functions or dynamic casting
 - Integrates well with C++'s type system
 - Supports all necessary primitive types
 
-**Trade-offs**:
-- Must know type at compile time for access
-- Error handling via exceptions for type mismatches
+### 2. Parser Driver Over Generated Grammar
 
-### 2. Reference Grammar Retention
-
-**Decision**: Keep the Flex/Bison grammar files even though the active runtime
-path is hand-written
+**Decision**: Keep format-specific behavior in a parser driver layered over the
+generated Flex/Bison parser
 
 **Rationale**:
-- Preserves the intended grammar structure
-- Keeps a migration path open for future parser generation work
-- Documents tokenization and syntax separately from the runtime code
+
+- Keeps grammar concerns focused on tokenization and row assembly
+- Preserves configurable metadata/header heuristics outside the grammar
+- Makes diagnostics, type conversion, and heading validation easier to test
 
 **Trade-offs**:
-- Two parser descriptions must be kept aligned if the grammar files are revived
-- The default build does not validate the Flex/Bison path
+
+- The driver and grammar must agree on row/token boundaries
+- The build now depends on `flex` and `bison`
 
 ### 3. Two-Phase Type Configuration
 
 **Decision**: Allow types to be set before or after header parsing
 
-**Rationale**:
-- By index: When column positions are known
-- By name: When column names are known
-- Can configure either before or after parsing
-
 **Implementation**:
-- `setColumnType(index, name, type)` - Configure by position
-- `setColumnTypeByName(name, type)` - Configure by name
+
+- `setColumnType(index, name, type)`
+- `setColumnTypeByName(name, type)`
 - Both store in `columnTypeMap` and `columnIndexTypeMap`
-- Applied during data row parsing
+- The driver applies them when it materializes the header and data rows
 
-### 4. String-Based Data Row Parsing
+### 4. Row-Oriented Grammar
 
-**Decision**: Parse data rows via string tokenization rather than pure Bison
+**Decision**: Let Bison assemble rows while the driver decides whether each row
+is metadata, header, or data
 
 **Rationale**:
-- Simpler grammar handling
-- Better error recovery
-- Flexible whitespace handling
-- Can be implemented with standard C++ functions
+
+- Keeps the grammar compact despite FLG header ambiguity
+- Preserves empty-field support
+- Allows the driver to keep the current header-detection rules
 
 **Implementation**:
+
 ```cpp
-// In lib/src/Parser.cpp parseString() method:
-while (std::getline(ss, field, ',')) {
-    Value parsed = parseValue(field, columns[col_index].type);
-    row.push(parsed);
-}
+line:
+    row NEWLINE { driver.consumeRow(*$1, @1.first_line, @2.first_column); }
+    | row { driver.consumeRow(*$1, @1.first_line, @1.last_column + 1); }
 ```
 
-### 5. Configurable Column Types
+### 5. Heading Requirements And Diagnostics
 
-**Decision**: Make column types fully configurable, not inferred from data
+**Decision**: Missing required headings can be reported as either warnings or
+errors
+
+**Implementation**:
+
+- `setRequiredHeading(name, severity)`
+- `setOptionalHeading(name)`
+- `setFieldValidator(field, validatorName)`
+- `registerValidator(validatorName, validator)`
+- `getDiagnostics()`, `getErrors()`, and `getWarnings()`
+
+### 6. Field-Level String Validation
+
+**Decision**: Keep string-format validation in the parser API and driver rather
+than pushing it into the grammar.
 
 **Rationale**:
-- Type safety: Prevents silent conversions
-- Predictability: Parsing is deterministic
-- Flexibility: Supports any schema configuration
-- Performance: No scanning data twice
 
-**Configuration Methods**:
-
-**By Index (for CSV alignment)**:
-```cpp
-parser.setColumnType(0, "HEADING1", ValueType::FLOAT);
-parser.setColumnType(1, "HEADING2", ValueType::STRING);
-```
-
-**By Name (for semantic clarity)**:
-```cpp
-parser.setColumnTypeByName("ID", ValueType::UINT32);
-parser.setColumnTypeByName("ACTIVE", ValueType::BOOL);
-```
+- Validation rules are field-specific rather than syntax-level
+- The same validator mechanism works for metadata keys and table columns
+- Named validators can be bound from JSON config without changing the grammar
 
 ## Data Flow
 
 ### Parsing Flow
 
-```
-Input File
+```text
+Input Stream
     │
     ▼
 ┌────────────────┐
-│ Manual Scanner │  → Line and field tokenization
+│ Flex Lexer     │  → Delimiters, newlines, field text
 └────────────────┘
     │
     ▼
 ┌────────────────┐
-│ Header Detect  │  → Metadata/header boundary
+│ Bison Grammar  │  → Row assembly
 └────────────────┘
     │
     ▼
 ┌────────────────┐
-│ Type Convert   │  → Per-column conversion
+│ Parser Driver  │  → Header detection, validation, conversion
 └────────────────┘
     │
     ├─► KV Pairs → ValueMap
     ├─► Headers → ColumnDefinitions
-    └─► Data Rows → ValueVectors
-```
-
-### Type Conversion Flow
-
-```
-String Input
-    │
-    ├─ Check configuration for column type
-    │
-    ▼
-ParseValue(string, ValueType)
-    │
-    ├─ Apply type-specific conversion
-    │   ├─ INT: std::stoi()
-    │   ├─ FLOAT: std::stod()
-    │   ├─ BOOL: isBoolean() + conversion
-    │   └─ STRING: as-is
-    │
-    ▼
-Value (variant)
-    │
-    ▼
-Stored in ValueVector
+    ├─► Data Rows → ValueVectors
+    └─► Diagnostics → warnings / errors
 ```
 
 ## Extension Points
@@ -186,84 +168,18 @@ Stored in ValueVector
 
 To add a new type:
 
-1. **Update enum** in `lib/include/Parser.hpp`:
-```cpp
-enum class ValueType {
-    // ... existing types ...
-    MY_NEW_TYPE
-};
-```
-
-2. **Update Value variant** in `lib/include/Values.hpp`:
-```cpp
-using Value = std::variant<
-    // ... existing types ...
-    MyNewType
->;
-```
-
-3. **Update parseValue()** in `lib/src/Parser.cpp`:
-```cpp
-case ValueType::MY_NEW_TYPE:
-    // Parsing logic
-    break;
-```
-
-4. **Update valueToString()** in `lib/src/Parser.cpp`:
-```cpp
-else if (std::holds_alternative<MyNewType>(v)) {
-    return // conversion to string
-}
-```
+1. Update `ValueType` in `lib/include/Parser.hpp`.
+2. Update `Value` in `lib/include/Values.hpp`.
+3. Update `tryParseValue()` / `parseValue()` in `lib/src/Parser.cpp`.
+4. Update `valueToString()` in `lib/src/Parser.cpp`.
 
 ### 2. Changing Delimiters
 
-To use a different delimiter:
+Delimiter behavior is runtime-configured through `setDelimiter()`. If lexer
+tokenization rules need to change, update both `lib/src/parser.l` and the
+driver logic in `lib/src/ParserDriver.cpp`.
 
-1. **Update reference lexer** in `lib/src/parser.l`:
-```flex
-","    { return COMMA; }
-```
-Change to:
-```flex
-"|"    { return DELIMITER; }
-```
-
-2. **Update reference grammar** in `lib/src/parser.y`:
-```bison
-field_value { /* already works with any token */ }
-```
-
-3. **Update runtime parsing** in `lib/src/Parser.cpp`:
-```cpp
-while (std::getline(ss, field, ',')) {
-```
-Change to:
-```cpp
-while (std::getline(ss, field, '|')) {
-```
-
-### 3. Custom Value Validation
-
-Implement post-parse validation:
-
-```cpp
-FlgParser parser;
-// ... configure ...
-parser.parseFile("input.flg");
-
-// Validate
-for (size_t i = 0; i < parser.getRowCount(); ++i) {
-    const auto& row = parser.getRow(i);
-    
-    // Your validation logic
-    if (someCondition(row)) {
-        std::cerr << "Validation failed at row " << i << std::endl;
-    }
-}
-```
-
-### 4. Schema Configuration
+### 3. Schema Configuration
 
 Create helper functions for common configurations:
 
@@ -275,121 +191,33 @@ public:
         parser.setColumnType(1, "NAME", ValueType::STRING);
         parser.setColumnType(2, "VALUE", ValueType::FLOAT);
         parser.setColumnType(3, "ACTIVE", ValueType::BOOL);
-    }
-    
-    static void configureLegacySchema(FlgParser& parser) {
-        parser.setColumnType(0, "KEY", ValueType::STRING);
-        parser.setColumnType(1, "VAL", ValueType::STRING);
-        // ... more columns ...
+        parser.setRequiredHeading("ID", DiagnosticSeverity::ERROR);
     }
 };
 ```
 
-## Performance Considerations
+### 4. JSON Configuration
 
-### Memory Usage
+`lib/src/ParserConfig.cpp` maps JSON config into parser configuration:
 
-- **KV Pairs**: O(n) where n = number of key-value pairs
-- **Column Definitions**: O(m) where m = number of columns
-- **Data Rows**: O(n×m) where n = rows, m = columns
+- `field_requirements` -> `error`, `warning`, or `optional`
+- `validators` -> field name to registered validator name
 
-### Time Complexity
+### 5. External Validator Registration
 
-- **Parsing**: O(n×m) - linear in total tokens
-- **Type Configuration**: O(1) per column
-- **Data Access**: O(1) row access, O(1) column access within row
+Validators can be registered from a separate compilation unit and then selected
+from JSON or bound in code by name. The repository includes an external
+`plmnid` validator example that validates a 3-digit MCC followed by a 2- or
+3-digit MNC.
 
-### Optimization Strategies
+## Build Integration
 
-1. **Avoid repeated type lookups**:
-   ```cpp
-   // BAD: Looks up type multiple times
-   for (size_t i = 0; i < 1000; ++i) {
-       ValueType type = parser.getColumnType("NAME");
-   }
-   
-   // GOOD: Look up once
-   ValueType type = parser.getColumnType("NAME");
-   for (size_t i = 0; i < 1000; ++i) {
-       // Use type
-   }
-   ```
+`BUILD.bazel` runs `bison` and `flex` through Bazel `genrule`s, then compiles
+the generated sources into the parser library and binaries.
 
-2. **Pre-allocate if row count is known**:
-   ```cpp
-   // Could implement reserve() method if needed
-   parser.reserve(expectedRowCount);
-   ```
+The example binaries can optionally include `examples/custom_validators.cpp`
+through a Bazel build flag:
 
-3. **Use move semantics for large strings**:
-   - Already handled by std::string
-
-## Error Handling Strategy
-
-### Parsing Errors
-- Reported by Bison with line numbers
-- Fatal - stops parsing
-- Message format: "Parse error at line N: ..."
-
-### Type Conversion Errors
-- Caught during parseValue()
-- Fall back to STRING type
-- Non-fatal - parsing continues
-
-### Access Errors
-- Type mismatch: `wrong_type` exception
-- Out of bounds: `std::out_of_range` exception
-- Missing key: `missing_key` exception
-
-## Testing Strategy
-
-### Unit Tests (`test/testParser.cpp`)
-
-1. **Basic parsing**: File format correctness
-2. **Type configuration**: Index and name-based configuration
-3. **Data access**: Row and column access patterns
-4. **Type conversion**: Each ValueType
-5. **Error conditions**: Bounds checking, type mismatches
-6. **Edge cases**: Empty files, single row, whitespace
-
-### Integration Tests
-
-1. Parse real `.flg` files
-2. Validate against schema
-3. Compare with expected outputs
-
-## Future Enhancements
-
-1. **Streaming Parser**: For large files
-2. **Schema Validation**: Enforce constraints
-3. **Type Inference**: Auto-detect column types
-4. **Custom Type Support**: User-defined types
-5. **Compression Support**: Parse .flg.gz files
-6. **Validation Functions**: Per-column validators
-7. **Error Recovery**: Continue parsing on errors
-8. **Statistics**: Row count, column statistics
-9. **Export Formats**: JSON, XML output
-10. **Performance Profiling**: Built-in timing
-
-## Maintenance Notes
-
-### When Modifying the Parser
-
-1. **Grammar Changes**: Edit `lib/src/parser.y` if you intend to revive the
-   generated parser path
-2. **Lexer Changes**: Edit `lib/src/parser.l` alongside the grammar
-3. **Runtime Parser Changes**: Keep `lib/src/Parser.cpp` aligned with the file
-   format
-4. **Test Changes**: Update `test/testParser.cpp`
-5. **Documentation**: Update this file and `PARSER_USAGE.md`
-
-### Build Requirements
-
-- C++17 compiler
-- GTest (for unit tests)
-
-### Reference Grammar Notes
-
-The default `Makefile` does not build the Flex/Bison grammar path. If that path
-is reintroduced later, the generated artifacts and build rules will need to be
-added intentionally rather than assumed to exist.
+```bash
+bazel build --define enable_custom_validators=true //:example //:parser_examples
+```

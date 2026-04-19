@@ -11,12 +11,16 @@ This repository contains a small C++17 library with two main parts:
 
 ```text
 value/
+├── BUILD.bazel
+├── MODULE.bazel
 ├── lib/
 │   ├── include/
 │   │   ├── Parser.hpp
+│   │   ├── ParserConfig.hpp
 │   │   └── Values.hpp
 │   └── src/
 │       ├── Parser.cpp
+│       ├── ParserConfig.cpp
 │       ├── parser.l
 │       └── parser.y
 ├── test/
@@ -25,6 +29,7 @@ value/
 │   ├── testParser.cpp
 │   └── testValues.cpp
 ├── examples/
+│   ├── custom_validators.cpp
 │   ├── example.cpp
 │   └── parser_examples.cpp
 └── Makefile
@@ -32,31 +37,29 @@ value/
 
 ## Build
 
-The checked-in build uses the provided `Makefile`.
+The primary build uses Bazel.
 
 ```bash
-make
+bazel build //:example //:parser_examples
 ```
-
-This builds:
-
-- `unit_tests`
-- `example`
-- `parser_examples`
-
-Clean generated outputs with:
-
-```bash
-make clean
-```
-
-## Test
 
 Run the unit suite with:
 
 ```bash
-./unit_tests
+bazel test //:unit_tests
 ```
+
+The generated parser path still requires both `flex` and `bison` to be
+installed because Bazel generates the lexer and parser sources at build time.
+
+To include the external `plmnid` validator in the example binaries at build
+time:
+
+```bash
+bazel build --define enable_custom_validators=true //:example //:parser_examples
+```
+
+The repository still includes a `Makefile` for local compatibility.
 
 ## Library Overview
 
@@ -90,12 +93,14 @@ Run the unit suite with:
 - configurable delimiter selection
 - configurable column typing by index or by column name
 - configurable key-value counts via `setExpectedKeyValuePairs()`
-- structured parse errors with line and column numbers
+- required headings with warning or error severity
+- field-specific string validators
+- structured parse diagnostics with line and column numbers
 
-The current runtime parser is implemented in
-[lib/src/Parser.cpp](/home/barry/workspace/value/lib/src/Parser.cpp:1).
-The Flex/Bison sources in `lib/src/parser.l` and `lib/src/parser.y` are kept as
-reference grammar artifacts and are not part of the default build.
+The runtime parser is generated from `lib/src/parser.l` and
+`lib/src/parser.y`, with
+[lib/src/ParserDriver.cpp](/home/barry/workspace/value/lib/src/ParserDriver.cpp:1)
+owning FLG-specific configuration, heuristics, and diagnostics.
 
 ## Example Formats
 
@@ -112,6 +117,7 @@ HEADING1,HEADING2,HEADING3,HEADING4
 
 ```cpp
 #include "Parser.hpp"
+#include <fstream>
 
 FlgParser parser;
 parser.setExpectedKeyValuePairs(5);
@@ -119,8 +125,11 @@ parser.setDelimiter(',');
 parser.setColumnType(0, "HEADING1", ValueType::FLOAT);
 parser.setColumnType(1, "HEADING2", ValueType::STRING);
 parser.setColumnType(3, "HEADING4", ValueType::BOOL);
+parser.setRequiredHeading("HEADING4", DiagnosticSeverity::ERROR);
+parser.setFieldValidator("STAMP", "datetime_utc");
 
-if (parser.parseFile("input.flg")) {
+std::ifstream input("input.flg");
+if (input && parser.deserialise(input)) {
     const auto& row = parser.getRow(0);
     float value = row.get<float>(0);
     std::string label = row.get<std::string>(1);
@@ -129,6 +138,21 @@ if (parser.parseFile("input.flg")) {
     std::cerr << "Parse error at line " << error->line
               << ", column " << error->column
               << ": " << error->message << '\n';
+}
+
+for (const auto& warning : parser.getWarnings()) {
+    std::cerr << "Warning at line " << warning.line
+              << ", column " << warning.column
+              << ": " << warning.message << '\n';
+}
+```
+
+To write the current parser state back out in FLG format:
+
+```cpp
+std::ofstream output("roundtrip.flg");
+if (!output || !parser.serialise(output)) {
+    std::cerr << "Failed to serialise parser contents\n";
 }
 ```
 
@@ -153,6 +177,13 @@ Sample config:
 {
   "expected_key_value_pairs": 5,
   "delimiter": ",",
+  "field_requirements": {
+    "HEADING4": "error",
+    "STAMP": "optional"
+  },
+  "validators": {
+    "STAMP": "datetime_utc"
+  },
   "columns": [
     { "index": 0, "name": "HEADING1", "type": "FLOAT" },
     { "index": 1, "name": "HEADING2", "type": "STRING" },
@@ -161,6 +192,19 @@ Sample config:
   ]
 }
 ```
+
+`field_requirements` accepts `error`, `warning`, or `optional`. `validators`
+maps field names to registered validator names.
+
+Built-in validators:
+
+- `datetime_utc`: validates `YYYY-MM-DDTHH:MM:SSZ`
+
+External validators can be registered from a separate compilation unit with
+`registerValidator()`. The repository includes an example `plmnid` validator in
+[custom_validators.cpp](/home/barry/workspace/value/examples/custom_validators.cpp),
+which validates a `PLMNID` string as a 3-digit MCC followed by a 2- or 3-digit
+MNC.
 
 Semicolon-delimited sample config:
 

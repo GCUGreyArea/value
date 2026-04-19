@@ -1,6 +1,13 @@
 {
   "expected_key_value_pairs": 5,
   "delimiter": ",",
+  "field_requirements": {
+    "HEADING4": "error",
+    "STAMP": "optional"
+  },
+  "validators": {
+    "STAMP": "datetime_utc"
+  },
   "columns": [
     {
       "index": 0,

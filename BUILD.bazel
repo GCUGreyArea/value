@@ -1,0 +1,100 @@
+package(default_visibility = ["//visibility:public"])
+
+config_setting(
+    name = "enable_custom_validators",
+    values = {"define": "enable_custom_validators=true"},
+)
+
+genrule(
+    name = "parser_bison",
+    srcs = ["lib/src/parser.y"],
+    outs = [
+        "generated/parser.tab.cpp",
+        "generated/parser.tab.hpp",
+    ],
+    cmd = """
+        mkdir -p $(RULEDIR)/generated
+        bison --defines=$(RULEDIR)/generated/parser.tab.hpp -o $(RULEDIR)/generated/parser.tab.cpp $(location lib/src/parser.y)
+    """,
+)
+
+genrule(
+    name = "parser_flex",
+    srcs = [
+        "lib/src/parser.l",
+        ":parser_bison",
+    ],
+    outs = ["generated/parser.yy.cpp"],
+    cmd = """
+        mkdir -p $(RULEDIR)/generated
+        flex -o $(RULEDIR)/generated/parser.yy.cpp $(location lib/src/parser.l)
+    """,
+)
+
+cc_library(
+    name = "value_parser",
+    srcs = [
+        "lib/src/Parser.cpp",
+        "lib/src/ParserConfig.cpp",
+        "lib/src/ParserDriver.cpp",
+        ":parser_bison",
+        ":parser_flex",
+    ],
+    hdrs = [
+        "lib/include/Parser.hpp",
+        "lib/include/ParserConfig.hpp",
+        "lib/include/ParserDriver.hpp",
+        "lib/include/Values.hpp",
+        ":parser_bison",
+    ],
+    copts = ["-std=c++17"],
+    includes = [
+        "generated",
+        "lib/include",
+    ],
+)
+
+cc_binary(
+    name = "example",
+    srcs = ["examples/example.cpp"] + select({
+        ":enable_custom_validators": ["examples/custom_validators.cpp"],
+        "//conditions:default": [],
+    }),
+    copts = ["-std=c++17"],
+    data = [
+        "examples/example_config.json",
+        "examples/example_config_semicolon.json",
+        "input.flg",
+    ],
+    deps = [":value_parser"],
+)
+
+cc_binary(
+    name = "parser_examples",
+    srcs = ["examples/parser_examples.cpp"] + select({
+        ":enable_custom_validators": ["examples/custom_validators.cpp"],
+        "//conditions:default": [],
+    }),
+    copts = ["-std=c++17"],
+    data = ["input.flg"],
+    deps = [":value_parser"],
+)
+
+cc_test(
+    name = "unit_tests",
+    srcs = [
+        "examples/custom_validators.cpp",
+        "test/testParser.cpp",
+        "test/testParserConfig.cpp",
+        "test/testValidatorRegistry.cpp",
+        "test/testValues.cpp",
+    ],
+    copts = ["-std=c++17"],
+    data = ["test/resources/input.flg"],
+    linkopts = [
+        "-lgtest",
+        "-lgtest_main",
+        "-pthread",
+    ],
+    deps = [":value_parser"],
+)

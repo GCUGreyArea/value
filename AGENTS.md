@@ -13,12 +13,18 @@
 
 ```
 project/
-├── lib/                    # Library code
-│   ├── include/           # Library headers (.hpp)
-│   └── src/               # Library sources (.cpp, .l, .y)
-├── test/                  # Unit tests
-│   └── test*.cpp         # Test files
-├── examples/              # Application examples
-│   └── *.cpp             # Example programs
-└── CMakeLists.txt        # Build configuration
+├── lib/            # Library code
+│   ├── include/    # Library headers (.hpp)
+│   └── src/        # Library sources (.cpp, .l, .y)
+├── test/           # Unit tests
+│   └── test*.cpp   # Test files
+├── examples/       # Application examples
+│   └── *.cpp       # Example programs
+└── Makefile        # Build configuration
 ```
+
+### Task and planning
+
+- When I ask you to perform a task, I expect the following
+    - That you will generate a plan that I can read  
+    - that you will wait for approval before executing the plan

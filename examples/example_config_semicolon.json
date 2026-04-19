@@ -1,6 +1,9 @@
 {
   "expected_key_value_pairs": 2,
   "delimiter": ";",
+  "field_requirements": {
+    "ACTIVE": "warning"
+  },
   "columns": [
     {
       "index": 0,
